@@ -3,8 +3,8 @@
  * Class for an advanced debugging system.
  *
  * @author      koryabkin.ev
- *  @version     v1.0.0
- *  @copyright   Copyright (c) 2025, koryabkin.ev
+ * @version     v1.0.2
+ * @copyright   Copyright (c) 2025, koryabkin.ev
  **/
 
 if (!class_exists('Logger')) {
@@ -12,6 +12,9 @@ if (!class_exists('Logger')) {
     {
         // Process ID
         private $pid = null;
+        private $setpid = false;
+        // Show time log
+        private $show_time = false;
         private $mlogs = [];
 
         // Output options in the system: echo, file, function
@@ -45,22 +48,29 @@ if (!class_exists('Logger')) {
          * @param $db
          * @param $proxy
          */
-        public function __construct($pid = null, $setSkip = false)
+        public function __construct($pid = null, $setSkip = false, $show_time = false)
         {
             $this->setPID($pid);
             $this->setSkip($setSkip);
+            $this->showTime($show_time);
         }
 
         /**
          * Function for setting a unique process identifier
          * @param string|null $pid - can accept any string value
-         * @return void
          */
         public function setPID(string $pid = null)
         {
             if (!empty($pid)) {
                 $this->pid = $pid;
+                $this->setpid = true;
             }
+            return $this;
+        }
+
+        public function showTime($show = true){
+            $this->show_time = !empty($show);
+            return $this;
         }
 
         /**
@@ -106,7 +116,7 @@ if (!class_exists('Logger')) {
          */
         public function setFatalLvl(int $max_lvl)
         {
-            if (($max_lvl >= 0) && ($max_lvl < $this->default_lvl)) {
+            if (($max_lvl >= -1) && ($max_lvl < $this->default_lvl)) {
                 $this->fatal_lvl = $max_lvl;
             }
             return $this;
@@ -114,95 +124,104 @@ if (!class_exists('Logger')) {
 
         /**
          * A function that skips all log messages for output and processing at the end of execution.
-         * @param bool $skip - true or false
+         * @param bool $global_skip - true or false
          */
-        public function setSkip(bool $skip = true)
+        public function setSkip(bool $global_skip = true)
         {
-            $this->skip_null = !empty($skip);
+            $this->skip_null = !empty($global_skip);
             return $this;
+        }
+
+        /**
+         * This is a forced cache reset function for accumulated messages.
+         * @return $this
+         */
+        public function resetLog()
+        {
+            $this->mlogs = [];
+            return $this;
+        }
+
+        private function log2($msg, $min_show_debug)
+        {
+            global $mypid;
+            $debug_level = defined("DEBUG_LEVEL") ? DEBUG_LEVEL : 2;
+            if ($min_show_debug <= $debug_level) {
+                $level_name = [ 0 => 'FATAL', 1 => 'ERROR', 2 => 'WARN', 3 => 'INFO', 4 => 'DEBUG', 5 => 'SYSTEM', 6 => 'TRACE'];
+                if (is_array($msg)){
+                    $msg = print_r($msg, true);
+                }
+                echo gmdate('[d-m-Y H:i:s]') . "[$mypid]\t\t[{$level_name[$min_show_debug]}] {$msg} \n";
+            }
         }
 
         /**
          * Standard logging output function.
          * @param $msg - message or array, can be an object
          * @param int $debug_lvl - debug output level
-         * @param bool $skip - skip message for the next trigger
-         * @param array $replace - if any replacement is needed
+         * @param array $options - [ 's' => '\n', 'one_line' => true, 'skip' => false, 'replace' => [] ]
          */
-        public function log($msg, int $debug_lvl = 2, bool $skip = false, array $replace = [])
+        public function log($msg, int $debug_lvl = 2, array $options = [])
         {
+            //$this->log2($msg, $debug_lvl);
+            //return '';
+
             $_skip = $this->skip_null;
-            if (empty($_skip)) {
-                $_skip = !empty($skip);
+            if (!$_skip) {
+                $_skip = !empty($options['skip']);
             }
             $now_time = time();
-            if ($debug_lvl <= $this->default_lvl) {
-                // If the minimum tolerance is met, then output the name
+            // If it was overstated, then we accumulate
+            $_msg = [
+                'time' => $now_time,
+                'msg' => $msg,
+                'lvl' => $debug_lvl
+            ];
+            if (!empty($options)) {
+                $_msg['options'] = $options;
+            }
 
-                $text_log = '';
-                if (empty($_skip)) {
+            if ($debug_lvl <= $this->default_lvl) {
+                if ($_skip) {
+                    $_msg['show'] = true;
+                    $this->mlogs[] = $_msg;
+                } else {
+                    // If the minimum tolerance is met, then output the name
+                    $text_log = '';
+                    $show_end = false;
+
                     if (!empty($this->mlogs)) {
                         if ($debug_lvl <= $this->fatal_lvl) {
                             $text_log .= "\n--- {$now_time} - [{$this->debug_lvl[$debug_lvl]}] ---\n";
                             foreach ($this->mlogs as $_log) {
-                                $text_log .= $this->render_log($_log);
+                                $text_log .= $this->render_msg($_log);
                             }
+                            // Resetting the savings array
+                            $this->resetLog();
+                            $show_end = true;
                         }
                         if ($debug_lvl != $this->fatal_lvl) {
                             foreach ($this->mlogs as $_log) {
                                 if (!empty($_log['show'])) {
-                                    $text_log .= $this->render_log($_log);
+                                    $text_log .= $this->render_msg($_log);
                                 }
                             }
+                            // Resetting the savings array
+                            $this->resetLog();
                         }
                     }
-                }
 
-                // Execution of filling or enforcement
-                $_msg = [
-                    'time' => $now_time,
-                    'msg' => $msg,
-                    'skip' => $skip,
-                    'lvl' => $debug_lvl
-                ];
-                if (!empty($replace)) {
-                    $_msg['replace'] = $replace;
-                }
-                if (!empty($_skip)) {
-                    $_msg['show'] = true;
-                    $this->mlogs[] = $_msg;
-                } else {
-                    $text_log .= $this->render_log($_msg);
-                }
+                    $text_log .= $this->render_msg($_msg);
 
-                if (empty($_skip)) {
-                    if (!empty($this->mlogs)) {
-                        if ($debug_lvl <= $this->fatal_lvl) {
-                            $text_log .= "--------------------------\n\n";
-                            // Resetting the savings array
-                            $this->mlogs = [];
-                        }
-                        if ($debug_lvl != $this->fatal_lvl) {
-                            // Resetting the savings array
-                            $this->mlogs = [];
-                        }
+                    if ($show_end) {
+                        $text_log .= "-=-=-=-=-=-=-=-=-=-=-=-=-=-\n\n";
                     }
-                }
 
-                if (!empty($text_log)) {
-                    $this->echoLog($text_log);
+                    if (!empty($text_log)) {
+                        $this->echoLog($text_log);
+                    }
                 }
             } else {
-                // If it was overstated, then we accumulate
-                $_msg = [
-                    'time' => $now_time,
-                    'msg' => $msg,
-                    'skip' => $skip,
-                    'lvl' => $debug_lvl
-                ];
-                if (!empty($replace)) {
-                    $_msg['replace'] = $replace;
-                }
                 $this->mlogs[] = $_msg;
             }
         }
@@ -211,37 +230,52 @@ if (!class_exists('Logger')) {
          * Private message rendering function
          * @param array $arr - array with data based on which the log generation will be performed
          */
-        private function render_log(array $arr)
+        private function render_msg(array $arr)
         {
-            if ($arr) {
-                $msg = gmdate('[d-m-Y H:i:s]');
-            }
-            if (!empty($this->pid)) {
-                $msg .= "[$this->pid]\t\t";
-            }
-            $type = $this->debug_lvl[$arr['lvl']];
-            $msg .= "[{$type}]";
-            if (!empty($arr['msg'])) {
-                if (!empty($arr['msg']) && (is_array($arr['msg']) || is_object($arr['msg']))) {
-                    ob_start();
-                    print_r($arr['msg']);
-                    $arr['msg'] = ob_get_clean();
+            if (empty($arr)) {
+                return '';
+            } else {
+                $msg = '';
+                if (!empty($arr['options']) && !empty($arr['options']['s'])){
+                    $msg .= $arr['options']['s'];
+                    unset($arr['options']['s']);
+                }
+                if ($this->show_time) {
+                    $msg .= gmdate('[d-m-Y H:i:s]', $arr['time']);
+                }
+                if ($this->setpid) {
+                    $msg .= "[$this->pid]\t\t";
+                }
+
+                $msg .= "[{$this->debug_lvl[$arr['lvl']]}]";
+
+                if (is_scalar($arr['msg'])){
+                    $msg_to_process = (string)$arr['msg'];
                 } else {
-                    if (is_scalar($arr['msg'])) {
-                        $arr['msg'] = (string)$arr['msg'];
-                    } else {
-                        ob_start();
-                        var_dump($arr['msg']);
-                        $arr['msg'] = ob_get_clean();
+                    $msg_to_process = print_r($arr['msg'], true);
+                }
+
+                // Checking options
+                if (!empty($arr['options'])) {
+                    // Replacement of substrings (optional)
+                    if (!empty($arr['options']['replace'])) {
+                        if (count($arr['options']['replace']) === 2) {
+                            $msg_to_process = str_replace(
+                                $arr['options']['replace'][0],
+                                $arr['options']['replace'][1],
+                                $msg_to_process
+                            );
+                        }
+                    }
+
+                    // Transformation into a single line (optional)
+                    if (!empty($arr['options']['one_line'])) {
+                        $msg_to_process = preg_replace('/\s+/', ' ', $msg_to_process);
                     }
                 }
-            } else {
-                return '';
+
+                return "{$msg} {$msg_to_process}\n";
             }
-            if (!empty($arr['replace']) && (count($arr['replace']) == 2)) {
-                $arr['msg'] = str_replace($arr['replace'][0], $arr['replace'][1], $arr['msg']);
-            }
-            return $msg . " {$arr['msg']} \n";
         }
 
 
@@ -257,37 +291,33 @@ if (!class_exists('Logger')) {
                 }
                 $text_log = '';
                 $arr_msg = [];
+
                 foreach ($this->mlogs as $_log) {
+                    $log_skip = (!empty($_log['options']) && !empty($_log['options']['skip']));
                     if (!is_null($lvl)) {
                         if ($_log['lvl'] <= $lvl) {
-                            $text_log .= $this->render_log($_log);
+                            $text_log .= $this->render_msg($_log);
                         }
                     } else {
                         if (!empty($_log['show'])) {
-                            if (empty($_log['skip'])) {
+                            if ($log_skip) {
+                                $arr_msg[] = $_log;
+                            } else {
+                                $show_end = false;
                                 if (!empty($arr_msg)) {
                                     if ($_log['lvl'] <= $this->fatal_lvl) {
                                         $text_log .= "\n--- {$_log['time']} - [{$this->debug_lvl[$_log['lvl']]}] ---\n";
                                         foreach ($arr_msg as $a_log) {
-                                            $text_log .= $this->render_log($a_log);
+                                            $text_log .= $this->render_msg($a_log);
                                         }
+                                        $show_end = true;
                                     }
                                 }
-                            }
-                            if (!empty($_log['skip'])) {
-                                $arr_msg[] = $_log;
-                            } else {
-                                $text_log .= $this->render_log($_log);
-                            }
-                            if (empty($_log['skip'])) {
-                                if (!empty($arr_msg)) {
-                                    if ($_log['lvl'] <= $this->fatal_lvl) {
-                                        $text_log .= "--------------------------\n\n";
-                                    }
+                                $text_log .= $this->render_msg($_log);
+                                if ($show_end) {
+                                    $text_log .= "-=-=-=-=-=-=-=-=-=-=-=-=-=-\n\n";
                                 }
-                                if (!empty($arr_msg)) {
-                                    $arr_msg = [];
-                                }
+                                $arr_msg = [];
                             }
                         } else {
                             $arr_msg[] = $_log;
