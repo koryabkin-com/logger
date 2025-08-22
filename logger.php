@@ -3,7 +3,7 @@
  * Class for an advanced debugging system.
  *
  * @author      koryabkin.ev
- * @version     v1.0.3
+ * @version     v1.0.4
  * @copyright   Copyright (c) 2025, koryabkin.ev
  **/
 
@@ -34,7 +34,7 @@ if (!class_exists('Logger')) {
             6 => 'SYSTEM'
         ];
         private $default_lvl = 2;
-        private $fatal_lvl = 1;
+        private $fatal_lvl = 0;
 
         private $func = '';
 
@@ -110,7 +110,7 @@ if (!class_exists('Logger')) {
          * Set the current debug level.
          * @param int $min_lvl - the starting level below which all provided log messages are output.
          */
-        public function setDebugLvl(int $min_lvl)
+        public function setDebugLvl(int $min_lvl = 2)
         {
             if ($this->activate) {
                 if (($min_lvl >= 0) && ($min_lvl <= count($this->debug_lvl))) {
@@ -127,7 +127,7 @@ if (!class_exists('Logger')) {
         public function setFatalLvl(int $max_lvl)
         {
             if ($this->activate) {
-                if (($max_lvl >= -1) && ($max_lvl < $this->default_lvl)) {
+                if (($max_lvl >= -1) && ($max_lvl <= 1)) {
                     $this->fatal_lvl = $max_lvl;
                 }
             }
@@ -152,9 +152,7 @@ if (!class_exists('Logger')) {
          */
         public function resetLog()
         {
-            if ($this->activate) {
-                $this->mlogs = [];
-            }
+            $this->mlogs = [];
             return $this;
         }
 
@@ -167,29 +165,39 @@ if (!class_exists('Logger')) {
         public function log($msg, int $debug_lvl = 2, array $options = [])
         {
             if ($this->activate) {
-                $_skip = $this->skip_null;
-                if (!$_skip) {
-                    $_skip = !empty($options['skip']);
-                }
-                $now_time = time();
-                // If it was overstated, then we accumulate
-                $_msg = [
-                    'time' => $now_time,
-                    'msg' => $msg,
-                    'lvl' => $debug_lvl
-                ];
-                if (!empty($options)) {
-                    $_msg['options'] = $options;
-                }
-
                 if ($debug_lvl <= $this->default_lvl) {
+                    $_skip = $this->skip_null;
+                    if (!$_skip) {
+                        $_skip = !empty($options['skip']);
+                    }
                     if ($_skip) {
-                        $_msg['show'] = true;
-                        $this->mlogs[] = $_msg;
+                        if ($this->fatal_lvl != -1){
+                            // If it was overstated, then we accumulate
+                            $_msg = [
+                                'time' => time(),
+                                'msg' => $msg,
+                                'lvl' => $debug_lvl,
+                                'show' => true
+                            ];
+                            if (!empty($options)) {
+                                $_msg['options'] = $options;
+                            }
+                            $this->mlogs[] = $_msg;
+                        }
                     } else {
                         // If the minimum tolerance is met, then output the name
                         $text_log = '';
                         $show_end = false;
+                        // If it was overstated, then we accumulate
+                        $now_time = time();
+                        $_msg = [
+                            'time' => $now_time,
+                            'msg' => $msg,
+                            'lvl' => $debug_lvl
+                        ];
+                        if (!empty($options)) {
+                            $_msg['options'] = $options;
+                        }
 
                         if (!empty($this->mlogs)) {
                             if ($debug_lvl <= $this->fatal_lvl) {
@@ -200,8 +208,7 @@ if (!class_exists('Logger')) {
                                 // Resetting the savings array
                                 $this->resetLog();
                                 $show_end = true;
-                            }
-                            if ($debug_lvl != $this->fatal_lvl) {
+                            } else {
                                 foreach ($this->mlogs as $_log) {
                                     if (!empty($_log['show'])) {
                                         $text_log .= $this->render_msg($_log);
@@ -223,7 +230,18 @@ if (!class_exists('Logger')) {
                         }
                     }
                 } else {
-                    $this->mlogs[] = $_msg;
+                    if ($this->fatal_lvl != -1){
+                        // If it was overstated, then we accumulate
+                        $_msg = [
+                            'time' => time(),
+                            'msg' => $msg,
+                            'lvl' => $debug_lvl
+                        ];
+                        if (!empty($options)) {
+                            $_msg['options'] = $options;
+                        }
+                        $this->mlogs[] = $_msg;
+                    }
                 }
             }
         }
@@ -296,13 +314,13 @@ if (!class_exists('Logger')) {
                     $arr_msg = [];
 
                     foreach ($this->mlogs as $_log) {
-                        $log_skip = (!empty($_log['options']) && !empty($_log['options']['skip']));
                         if (!is_null($lvl)) {
                             if ($_log['lvl'] <= $lvl) {
                                 $text_log .= $this->render_msg($_log);
                             }
                         } else {
                             if (!empty($_log['show'])) {
+                                $log_skip = (!empty($_log['options']) && !empty($_log['options']['skip']));
                                 if ($log_skip) {
                                     $arr_msg[] = $_log;
                                 } else {
@@ -384,15 +402,13 @@ if (!class_exists('Logger')) {
             if (!empty($text_log)) {
                 if ($this->global_type == 'echo') {
                     echo $text_log;
-                }
-                if ($this->global_type == 'file') {
+                } elseif ($this->global_type == 'file') {
                     file_put_contents(
                         '/' . $this->log_dir . (!empty($this->add_dir) ? '/' . $this->add_dir : '') . '/' . $this->file_name . '.log',
                         $text_log,
                         FILE_APPEND
                     );
-                }
-                if ($this->global_type == 'function') {
+                } elseif ($this->global_type == 'function') {
                     ($this->func)($text_log);
                 }
             }
