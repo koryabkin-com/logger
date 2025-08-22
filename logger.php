@@ -3,14 +3,14 @@
  * Class for an advanced debugging system.
  *
  * @author      koryabkin.ev
- * @version     v1.0.4
+ * @version     v1.0.5
  * @copyright   Copyright (c) 2025, koryabkin.ev
  **/
 
 if (!class_exists('Logger')) {
     class Logger
     {
-        private $activate = true;
+        private $activate = 9999999999;
         // Process ID
         private $pid = null;
         private $setpid = false;
@@ -35,6 +35,7 @@ if (!class_exists('Logger')) {
         ];
         private $default_lvl = 2;
         private $fatal_lvl = 0;
+        private $min_lvl = 6;
 
         private $func = '';
 
@@ -56,7 +57,15 @@ if (!class_exists('Logger')) {
 
         public function setActivate($activate = true)
         {
-            $this->activate = !empty($activate);
+            if (!empty($activate)){
+                if (is_int($activate)){
+                    $this->activate = $activate;
+                } else {
+                    $this->activate = 9999999999;
+                }
+            } else {
+                $this->activate = 0;
+            }
         }
 
         /**
@@ -65,7 +74,7 @@ if (!class_exists('Logger')) {
          */
         public function setPID(string $pid = null)
         {
-            if (!empty($pid) && $this->activate) {
+            if (!empty($pid) && !empty($this->activate)) {
                 $this->pid = $pid;
                 $this->setpid = true;
             }
@@ -73,7 +82,7 @@ if (!class_exists('Logger')) {
         }
 
         public function showTime($show = true){
-            if ($this->activate) {
+            if (!empty($this->activate)) {
                 $this->show_time = !empty($show);
             }
             return $this;
@@ -89,7 +98,7 @@ if (!class_exists('Logger')) {
          */
         public function setTypeLog(string $name = '', string $nameFunc = '')
         {
-            if ($this->activate) {
+            if (!empty($this->activate)) {
                 if (!empty($name) && in_array($name, $this->acctype)) {
                     if ($name == 'function') {
                         if (!empty($nameFunc) && function_exists($nameFunc)) {
@@ -112,8 +121,15 @@ if (!class_exists('Logger')) {
          */
         public function setDebugLvl(int $min_lvl = 2)
         {
-            if ($this->activate) {
-                if (($min_lvl >= 0) && ($min_lvl <= count($this->debug_lvl))) {
+            if (!empty($this->activate)) {
+                if ($min_lvl <= $this->fatal_lvl){
+                    $this->mlogs[] = [
+                        'time' => time(),
+                        'msg' => "setDebugLvl() | set (Default lvl: {$min_lvl})  <= (Fatal lvl: {$this->fatal_lvl})",
+                        'lvl' => 1,
+                        'show' => true
+                    ];
+                } elseif (($min_lvl >= 0) && ($min_lvl <= count($this->debug_lvl))) {
                     $this->default_lvl = $min_lvl;
                 }
             }
@@ -126,8 +142,15 @@ if (!class_exists('Logger')) {
          */
         public function setFatalLvl(int $max_lvl)
         {
-            if ($this->activate) {
-                if (($max_lvl >= -1) && ($max_lvl <= 1)) {
+            if (!empty($this->activate)) {
+                if ($max_lvl >= $this->default_lvl){
+                    $this->mlogs[] = [
+                        'time' => time(),
+                        'msg' => "setFatalLvl() | set (Fatal lvl) {$max_lvl} >= (Default lvl) {$this->default_lvl}",
+                        'lvl' => 1,
+                        'show' => true
+                    ];
+                } elseif (($max_lvl >= -1) && ($max_lvl <= 1)) {
                     $this->fatal_lvl = $max_lvl;
                 }
             }
@@ -140,7 +163,7 @@ if (!class_exists('Logger')) {
          */
         public function setSkip(bool $global_skip = true)
         {
-            if ($this->activate) {
+            if (!empty($this->activate)) {
                 $this->skip_null = !empty($global_skip);
             }
             return $this;
@@ -156,6 +179,13 @@ if (!class_exists('Logger')) {
             return $this;
         }
 
+        private function detectLvl(int $lvl)
+        {
+            if ($this->min_lvl > $lvl){
+                $this->min_lvl = $lvl;
+            }
+        }
+
         /**
          * Standard logging output function.
          * @param $msg - message or array, can be an object
@@ -164,7 +194,9 @@ if (!class_exists('Logger')) {
          */
         public function log($msg, int $debug_lvl = 2, array $options = [])
         {
-            if ($this->activate) {
+            $now_time = time();
+            if ($this->activate > $now_time) {
+                $this->detectLvl($debug_lvl);
                 if ($debug_lvl <= $this->default_lvl) {
                     $_skip = $this->skip_null;
                     if (!$_skip) {
@@ -174,7 +206,7 @@ if (!class_exists('Logger')) {
                         if ($this->fatal_lvl != -1){
                             // If it was overstated, then we accumulate
                             $_msg = [
-                                'time' => time(),
+                                'time' => $now_time,
                                 'msg' => $msg,
                                 'lvl' => $debug_lvl,
                                 'show' => true
@@ -189,7 +221,6 @@ if (!class_exists('Logger')) {
                         $text_log = '';
                         $show_end = false;
                         // If it was overstated, then we accumulate
-                        $now_time = time();
                         $_msg = [
                             'time' => $now_time,
                             'msg' => $msg,
@@ -233,7 +264,7 @@ if (!class_exists('Logger')) {
                     if ($this->fatal_lvl != -1){
                         // If it was overstated, then we accumulate
                         $_msg = [
-                            'time' => time(),
+                            'time' => $now_time,
                             'msg' => $msg,
                             'lvl' => $debug_lvl
                         ];
@@ -298,27 +329,30 @@ if (!class_exists('Logger')) {
             }
         }
 
+        public function showLogsLvl(int $lvl = 6)
+        {
+            $text_log = '';
+            foreach ($this->mlogs as $_log) {
+                if ($_log['lvl'] <= $lvl) {
+                    $text_log .= $this->render_msg($_log);
+                }
+            }
+            $this->echoLog($text_log);
+        }
 
         /**
          * A function that outputs logs according to standard formatting, ignores
          * @param $lvl - logging level, will return standard output if absent.
          */
-        public function showLogs($lvl = null)
+        public function showLogs(int $lvl = 6)
         {
-            if ($this->activate) {
-                if (!empty($this->mlogs)) {
-                    if (!is_null($lvl)) {
-                        $lvl = (int)$lvl;
-                    }
-                    $text_log = '';
-                    $arr_msg = [];
+            if (!empty($this->activate)) {
+                if ($this->min_lvl <= $lvl) {
+                    if (!empty($this->mlogs)) {
+                        $text_log = '';
+                        $arr_msg = [];
 
-                    foreach ($this->mlogs as $_log) {
-                        if (!is_null($lvl)) {
-                            if ($_log['lvl'] <= $lvl) {
-                                $text_log .= $this->render_msg($_log);
-                            }
-                        } else {
+                        foreach ($this->mlogs as $_log) {
                             if (!empty($_log['show'])) {
                                 $log_skip = (!empty($_log['options']) && !empty($_log['options']['skip']));
                                 if ($log_skip) {
@@ -344,8 +378,8 @@ if (!class_exists('Logger')) {
                                 $arr_msg[] = $_log;
                             }
                         }
+                        $this->echoLog($text_log);
                     }
-                    $this->echoLog($text_log);
                 }
             }
         }
@@ -356,7 +390,7 @@ if (!class_exists('Logger')) {
          */
         public function setDir(string $add_dir = '')
         {
-            if (!empty($add_dir) && $this->activate) {
+            if (!empty($add_dir) && !empty($this->activate)) {
                 // Allowed characters: letters, numbers, period, underscore, hyphen
                 $add_dir = preg_replace('/[^\w\.\/\-]/', '', $add_dir);
                 $add_dir = trim(preg_replace('/\/+/', '/', $add_dir), '/');
@@ -384,7 +418,7 @@ if (!class_exists('Logger')) {
          */
         public function setDirName(string $file_name = '')
         {
-            if (!empty($file_name) && $this->activate) {
+            if (!empty($file_name) && !empty($this->activate)) {
                 if ($this->global_type == 'file') {
                     $this->showLogs();
                 }
